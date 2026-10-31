@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OmniDrop - Cross-Platform Peer Transfer</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- QRCode.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
+  <!-- PeerJS for WebRTC P2P Transfer -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              900: '#1e1b4b',
+            },
+            cyanGlow: '#06b6d4',
+          },
+          animation: {
+            'sweep': 'radarSweep 4s linear infinite',
+            'ping-slow': 'ping 3s cubic-bezier(0, 0, 0.2, 1) infinite',
+            'pulse-subtle': 'pulseSubtle 2s infinite ease-in-out',
+            'stream': 'packetFlow 1.2s linear infinite'
+          },
+          keyframes: {
+            radarSweep: {
+              '0%': { transform: 'rotate(0deg)' },
+              '100%': { transform: 'rotate(360deg)' }
+            },
+            pulseSubtle: {
+              '0%, 100%': { opacity: '0.4', transform: 'scale(1)' },
+              '50%': { opacity: '0.8', transform: 'scale(1.05)' }
+            },
+            packetFlow: {
+              '0%': { transform: 'translateX(-100%)', opacity: '0' },
+              '50%': { opacity: '1' },
+              '100%': { transform: 'translateX(100%)', opacity: '0' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+    
+    * {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Radar sweep gradient */
+    .radar-beam {
+      background: conic-gradient(
+        from 0deg at 50% 50%,
+        rgba(6, 182, 212, 0.35) 0deg,
+        rgba(99, 102, 241, 0.15) 35deg,
+        rgba(6, 182, 212, 0.0) 70deg,
+        transparent 360deg
+      );
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(99, 102, 241, 0.4);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(99, 102, 241, 0.7);
+    }
+
+    .glass-card {
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-card-hover {
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .glass-card-hover:hover {
+      transform: translateY(-2px);
+      border-color: rgba(99, 102, 241, 0.4);
+      box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.15);
+    }
+
+    .glow-cyan {
+      box-shadow: 0 0 25px -3px rgba(6, 182, 212, 0.25);
+    }
+    .glow-brand {
+      box-shadow: 0 0 30px -4px rgba(99, 102, 241, 0.35);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white overflow-x-hidden">
+
+  <!-- Background Ambience Gradients -->
+  <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+    <div class="absolute -top-40 -left-40 w-96 h-96 bg-brand-600/15 rounded-full blur-[120px]"></div>
+    <div class="absolute top-1/2 -right-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-[130px]"></div>
+    <div class="absolute -bottom-40 left-1/3 w-96 h-96 bg-purple-600/10 rounded-full blur-[140px]"></div>
+  </div>
+
+  <!-- Top Navigation Bar -->
+  <header class="relative z-20 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-lg sticky top-0 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-brand-500/25">
+        <i class="fa-solid fa-satellite-dish text-white text-lg"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">OmniDrop</span>
+          <span class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> P2P Live
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 hidden sm:block">Zero server storage • Direct device-to-device bridge</p>
+      </div>
+    </div>
+
+    <!-- Active Room Badge & Controls -->
+    <div class="flex items-center gap-2.5">
+      <button id="open-room-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 hover:border-brand-500/50 text-slate-200 text-xs font-medium transition group cursor-pointer shadow-sm">
+        <i class="fa-solid fa-door-open text-brand-400 group-hover:scale-110 transition"></i>
+        <span>Room: <span id="nav-room-code" class="font-mono-code font-bold text-white tracking-wider">#------</span></span>
+        <i class="fa-solid fa-qrcode text-slate-400 ml-1"></i>
+      </button>
+
+      <!-- User Device Identity Badge -->
+      <button id="my-device-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-700 hover:border-slate-500 text-slate-200 text-xs font-medium transition cursor-pointer">
+        <span id="nav-my-os-icon"><i class="fa-brands fa-windows text-blue-400"></i></span>
+        <span id="nav-my-name" class="max-w-[100px] truncate sm:max-w-[140px] font-semibold text-slate-100">Detecting...</span>
+        <i class="fa-solid fa-pen text-[10px] text-slate-400 hover:text-white"></i>
+      </button>
+
+      <!-- Audio FX Toggle -->
+      <button id="audio-toggle-btn" title="Toggle Sound FX" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-400 hover:border-slate-700 flex items-center justify-center transition cursor-pointer">
+        <i class="fa-solid fa-volume-high text-xs" id="audio-icon"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="relative z-10 flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+
+    <!-- Top Alert / Hint Banner for Cross-Platform Instructions -->
+    <div class="glass-card rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-3 text-xs sm:text-sm border border-brand-500/20 bg-gradient-to-r from-brand-900/20 via-slate-900/40 to-slate-900/20">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-brand-500/20 text-brand-400 flex items-center justify-center flex-shrink-0">
+          <i class="fa-solid fa-lightbulb text-sm"></i>
+        </div>
+        <div class="text-slate-300">
+          <span class="font-bold text-white">How to connect Android, iOS & Windows:</span>
+          Open this webpage on your phone & PC with the <span class="text-brand-300 font-semibold">same Room Code</span> or scan the QR Code. No app installation needed!
+        </div>
+      </div>
+      <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+        <button id="copy-link-banner-btn" class="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-medium text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap">
+          <i class="fa-solid fa-link"></i> Copy Invite Link
+        </button>
+        <button id="show-qr-banner-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap">
+          <i class="fa-solid fa-qrcode"></i> Show QR
+        </button>
+      </div>
+    </div>
+
+    <!-- Dual Layout: Left = Radar & Connected Devices; Right = Dropzone & Transfers -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      
+      <!-- LEFT SECTION: Radar & Discovery Hub (lg:col-span-5) -->
+      <section class="lg:col-span-5 flex flex-col gap-4">
+        
+        <div class="glass-card rounded-2xl p-5 relative overflow-hidden flex flex-col items-center">
+          <!-- Card Header -->
+          <div class="w-full flex items-center justify-between pb-3 border-b border-slate-800/80 mb-2">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
+              <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">Device Discovery Radar</h2>
+            </div>
+            <span id="peers-count-badge" class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-mono">0 Peer(s) Online</span>
+          </div>
+
+          <!-- The Animated Radar Visualizer -->
+          <div class="relative w-72 h-72 sm:w-80 sm:h-80 my-4 flex items-center justify-center select-none">
+            
+            <!-- Concentric rings -->
+            <div class="absolute inset-0 rounded-full border border-cyan-500/15"></div>
+            <div class="absolute inset-6 rounded-full border border-indigo-500/20"></div>
+            <div class="absolute inset-16 rounded-full border border-slate-700/40 border-dashed"></div>
+            <div class="absolute inset-28 rounded-full border border-cyan-400/25"></div>
+
+            <!-- Rotating Radar Sweep Beam -->
+            <div class="absolute inset-0 rounded-full radar-beam animate-sweep pointer-events-none opacity-80"></div>
+
+            <!-- Central Hub (Current Device) -->
+            <div id="radar-center-node" class="relative z-10 w-20 h-20 rounded-full bg-gradient-to-tr from-brand-600 to-cyan-500 flex flex-col items-center justify-center p-2 text-center shadow-xl shadow-brand-500/30 border-2 border-white/30 cursor-pointer transition hover:scale-105" title="This is your device">
+              <span id="center-os-icon" class="text-white text-xl mb-0.5">
+                <i class="fa-solid fa-desktop"></i>
+              </span>
+              <span class="text-[9px] font-bold text-white uppercase tracking-tight">YOU</span>
+              <span id="center-device-name" class="text-[10px] text-indigo-100 font-semibold truncate max-w-[65px]">My Device</span>
+            </div>
+
+            <!-- Orbit Container for Discovered Dynamic Peers -->
+            <div id="radar-peers-orbit" class="absolute inset-0 pointer-events-none"></div>
+          </div>
+
+          <!-- Radar Subtext & Legend -->
+          <div class="w-full flex items-center justify-between text-[11px] text-slate-400 px-2 pt-2 border-t border-slate-800/80">
+            <span class="flex items-center gap-1.5">
+              <i class="fa-solid fa-hand-pointer text-cyan-400"></i> Tap a discovered peer to send files
+            </span>
+            <button id="rescan-radar-btn" class="hover:text-brand-400 transition flex items-center gap-1 cursor-pointer">
+              <i class="fa-solid fa-arrows-rotate"></i> Ping Mesh
+            </button>
+          </div>
+        </div>
+
+        <!-- Discovered Peers Quick List -->
+        <div class="glass-card rounded-2xl p-4">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+            <span>Direct Connected Nodes</span>
+            <span class="text-[10px] lowercase text-slate-500 font-normal">auto-pairing WebRTC</span>
+          </h3>
+
+          <div id="discovered-peers-list" class="flex flex-col gap-2 max-h-52 overflow-y-auto pr-1">
+            <!-- Empty state -->
+            <div id="no-peers-placeholder" class="py-6 flex flex-col items-center justify-center text-center text-slate-500 text-xs">
+              <i class="fa-solid fa-tower-broadcast text-2xl mb-2 text-slate-600 animate-pulse"></i>
+              <span>No other peers in room <span class="font-mono text-slate-400 room-code-inline">#------</span></span>
+              <p class="text-[11px] text-slate-600 mt-1 max-w-xs">Open this page on your other phone/PC or share the invite code to link immediately.</p>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- RIGHT SECTION: File Dropzone, Queue & Live Transfer Engine (lg:col-span-7) -->
+      <section class="lg:col-span-7 flex flex-col gap-5">
+        
+        <!-- DROPZONE & FILE PICKER -->
+        <div id="drop-zone" class="glass-card rounded-3xl p-6 sm:p-8 border-2 border-dashed border-slate-700/80 hover:border-brand-500/80 transition-all flex flex-col items-center justify-center text-center relative group cursor-pointer">
+          <input type="file" id="file-input" multiple class="absolute inset-0 opacity-0 cursor-pointer z-10" />
+          
+          <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600/30 to-cyan-500/20 border border-brand-500/30 text-brand-400 flex items-center justify-center mb-4 group-hover:scale-110 transition shadow-lg shadow-brand-500/10">
+            <i class="fa-solid fa-cloud-arrow-up text-3xl text-cyan-400"></i>
+          </div>
+
+          <h3 class="text-base sm:text-lg font-bold text-white mb-1">
+            Drop files here, or <span class="text-cyan-400 underline decoration-cyan-400/40 underline-offset-4">Browse</span>
+          </h3>
+          <p class="text-xs sm:text-sm text-slate-400 max-w-md">
+            Send photos, videos, 4K clips, PDFs, APKs, or full Zip archives straight across platforms.
+          </p>
+
+          <div class="flex flex-wrap items-center justify-center gap-2 mt-4 text-[11px] text-slate-400">
+            <span class="px-2.5 py-1 rounded-md bg-slate-800/90 border border-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-image text-emerald-400"></i> Photos & Raw
+            </span>
+            <span class="px-2.5 py-1 rounded-md bg-slate-800/90 border border-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-video text-rose-400"></i> HD Video
+            </span>
+            <span class="px-2.5 py-1 rounded-md bg-slate-800/90 border border-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-file-zipper text-amber-400"></i> Any File / Zip
+            </span>
+            <span class="px-2.5 py-1 rounded-md bg-slate-800/90 border border-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-paste text-indigo-400"></i> Ctrl+V Paste
+            </span>
+          </div>
+        </div>
+
+        <!-- STAGED / SELECTED FILES QUEUE -->
+        <div id="staging-area" class="glass-card rounded-2xl p-5 hidden transition-all">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-brand-400"></span>
+              <h3 class="text-sm font-bold text-white">Staged for Sending (<span id="staged-count">0</span>)</h3>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="staged-total-size" class="text-xs font-mono text-slate-400">0 MB total</span>
+              <button id="clear-staged-btn" class="text-xs text-rose-400 hover:text-rose-300 transition ml-2 cursor-pointer">
+                <i class="fa-solid fa-trash-can"></i> Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Staged file list preview -->
+          <div id="staged-files-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto mb-4 pr-1"></div>
+
+          <!-- Send Action Bar -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+            <div class="flex items-center gap-2 flex-1">
+              <label for="target-peer-select" class="text-xs font-medium text-slate-300 whitespace-nowrap">Target Node:</label>
+              <select id="target-peer-select" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 w-full sm:max-w-xs">
+                <option value="broadcast">📢 All Discovered Peers (Broadcast)</option>
+              </select>
+            </div>
+            
+            <button id="send-files-btn" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-brand-500/25 transition cursor-pointer">
+              <i class="fa-solid fa-paper-plane"></i> Transmit Files
+            </button>
+          </div>
+        </div>
+
+        <!-- ACTIVE TRANSFER DASHBOARD & REAL-TIME SPEEDOMETER -->
+        <div id="active-transfer-card" class="glass-card rounded-2xl p-5 border border-cyan-500/30 hidden">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center animate-pulse">
+                <i id="transfer-direction-icon" class="fa-solid fa-arrow-up-right-dots text-sm"></i>
+              </div>
+              <div>
+                <h4 id="transfer-status-title" class="text-sm font-bold text-white">Sending: image_0284.heic</h4>
+                <p id="transfer-peer-info" class="text-xs text-slate-400">To: iPhone 15 Pro</p>
+              </div>
+            </div>
+            
+            <!-- Real-time metrics -->
+            <div class="text-right">
+              <span id="transfer-speed-badge" class="font-mono-code text-xs font-bold text-cyan-400 bg-cyan-950/80 px-2.5 py-1 rounded-md border border-cyan-800/80">
+                0.0 MB/s
+              </span>
+              <p id="transfer-eta" class="text-[10px] text-slate-400 mt-1 font-mono">ETA: calculating...</p>
+            </div>
+          </div>
+
+          <!-- Progress Bar Container -->
+          <div class="relative w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+            <div id="transfer-progress-bar" class="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-brand-500 via-indigo-400 to-cyan-400 w-0 rounded-full transition-all duration-150"></div>
+            <!-- Packet animation streak -->
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent w-24 h-full animate-stream pointer-events-none"></div>
+          </div>
+
+          <div class="flex items-center justify-between text-xs text-slate-400 mt-2 font-mono">
+            <span id="transfer-bytes-stat">0 MB / 0 MB</span>
+            <span id="transfer-percent-stat" class="font-bold text-white">0%</span>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+
+    <!-- BOTTOM SECTION: RECEIVED FILES TRAY & GALLERY -->
+    <section class="glass-card rounded-3xl p-5 sm:p-7 border border-slate-800/80">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+        <div>
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+              <i class="fa-solid fa-inbox text-sm"></i>
+            </div>
+            <h2 class="text-base sm:text-lg font-bold text-white">Received Files Vault</h2>
+            <span id="received-counter" class="px-2 py-0.5 rounded-full bg-slate-800 text-xs font-mono text-emerald-400 border border-emerald-500/20">0 items</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">Transferred peer-to-peer into your browser memory. Instant download or preview below.</p>
+        </div>
+
+        <div class="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+          <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 select-none">
+            <input type="checkbox" id="auto-download-toggle" class="accent-brand-500 rounded cursor-pointer" checked>
+            <span>Auto-save incoming files</span>
+          </label>
+          <button id="clear-vault-btn" class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-800 text-xs font-medium transition cursor-pointer">
+            <i class="fa-solid fa-trash"></i> Clear Tray
+          </button>
+        </div>
+      </div>
+
+      <!-- File Grid / Cards -->
+      <div id="received-files-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-5">
+        <!-- Empty Received State -->
+        <div id="empty-received-msg" class="col-span-full py-12 flex flex-col items-center justify-center text-center text-slate-500">
+          <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-3">
+            <i class="fa-solid fa-box-open text-2xl text-slate-600"></i>
+          </div>
+          <h4 class="text-sm font-semibold text-slate-400">No files received yet</h4>
+          <p class="text-xs text-slate-600 mt-1">Files sent to this device will immediately populate here with fast preview and download buttons.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- PAIRING / ROOM MODAL -->
+  <div id="room-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-card bg-slate-900 border border-slate-700/80 rounded-3xl max-w-md w-full p-6 sm:p-7 relative glow-brand transition-all scale-95 duration-200">
+      
+      <!-- Close Button -->
+      <button id="close-modal-btn" class="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+
+      <div class="text-center mb-5">
+        <div class="w-12 h-12 rounded-2xl bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center mb-3">
+          <i class="fa-solid fa-qrcode text-xl"></i>
+        </div>
+        <h3 class="text-lg font-bold text-white">Pair Across Platforms</h3>
+        <p class="text-xs text-slate-400 mt-1">Scan with Android or iOS camera to join this direct room.</p>
+      </div>
+
+      <!-- QR Code Canvas Display Box -->
+      <div class="flex flex-col items-center justify-center bg-white p-4 rounded-2xl mx-auto shadow-inner w-56 h-56 mb-5 relative">
+        <div id="qrcode-box" class="flex items-center justify-center"></div>
+      </div>
+
+      <!-- Room Code Entry & Copy Section -->
+      <div class="bg-slate-950/80 rounded-xl p-3 border border-slate-800 mb-4 flex items-center justify-between">
+        <div>
+          <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Current Room Code</span>
+          <div id="modal-room-code" class="text-xl font-mono-code font-extrabold text-cyan-400 tracking-wider">#000000</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="modal-copy-btn" class="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+            <i class="fa-regular fa-copy"></i> Copy Link
+          </button>
+        </div>
+      </div>
+
+      <!-- Join a Different Room Input -->
+      <div class="border-t border-slate-800 pt-4">
+        <label for="custom-room-input" class="text-xs font-medium text-slate-300 block mb-1.5">Or join an existing 6-digit Room:</label>
+        <div class="flex items-center gap-2">
+          <input type="text" id="custom-room-input" maxlength="6" placeholder="e.g. 748291" class="uppercase font-mono-code bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-400 flex-1 tracking-widest text-center" />
+          <button id="join-room-btn" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 font-semibold text-xs transition border border-cyan-500/30 cursor-pointer">
+            Join Room
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 text-center">
+        <button id="gen-new-room-btn" class="text-xs text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5 mx-auto cursor-pointer">
+          <i class="fa-solid fa-arrows-rotate text-[10px]"></i> Generate Random Room
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- DEVICE RENAME MODAL -->
+  <div id="rename-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-card bg-slate-900 border border-slate-700 rounded-2xl max-w-sm w-full p-6">
+      <h3 class="text-base font-bold text-white mb-1">Customize Device Identity</h3>
+      <p class="text-xs text-slate-400 mb-4">Other peers will see this friendly name on their radar.</p>
+
+      <input type="text" id="rename-input" maxlength="25" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500 mb-4" />
+
+      <div class="flex items-center justify-end gap-2">
+        <button id="cancel-rename-btn" class="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white transition cursor-pointer">Cancel</button>
+        <button id="save-rename-btn" class="px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition cursor-pointer">Save Name</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full"></div>
+
+  <!-- JAVASCRIPT APPLICATION LOGIC -->
+  <script>
+    const STATE = {
+      peerId: null,
+      peer: null,
+      connections: {},
+      roomCode: '',
+      myDevice: {
+        id: '',
+        name: 'Device',
+        os: 'windows',
+        icon: 'fa-desktop',
+        color: '#6366f1'
+      },
+      discoveredPeers: new Map(),
+      stagedFiles: [],
+      activeTransfer: null,
+      receivedFiles: [],
+      soundEnabled: true,
+      broadcastChannel: null,
+      chunkSize: 64 * 1024
+    };
+
+    const AudioEngine = {
+      ctx: null,
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+      },
+      playTone(freq, type = 'sine', duration = 0.15, gainVal = 0.1) {
+        if (!STATE.soundEnabled) return;
+        try {
+          this.init();
+          if (this.ctx.state === 'suspended') this.ctx.resume();
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+          gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + duration);
+        } catch(e) {}
+      },
+      radarPing() {
+        this.playTone(880, 'sine', 0.2, 0.05);
+      },
+      peerJoined() {
+        if (!STATE.soundEnabled) return;
+        this.playTone(523.25, 'triangle', 0.1, 0.08);
+        setTimeout(() => this.playTone(659.25, 'sine', 0.18, 0.08), 100);
+      },
+      transferStart() {
+        this.playTone(440, 'triangle', 0.1, 0.07);
+        setTimeout(() => this.playTone(554.37, 'triangle', 0.12, 0.07), 80);
+      },
+      transferSuccess() {
+        if (!STATE.soundEnabled) return;
+        this.playTone(523.25, 'sine', 0.1, 0.1);
+        setTimeout(() => this.playTone(659.25, 'sine', 0.1, 0.1), 90);
+        setTimeout(() => this.playTone(783.99, 'sine', 0.25, 0.12), 180);
+      }
+    };
+
+    function getStoredItem(key) {
+      try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+    function setStoredItem(key, val) {
+      try { localStorage.setItem(key, val); } catch (e) {}
+    }
+
+    function detectDevice() {
+      const ua = navigator.userAgent || navigator.vendor || window.opera;
+      let os = 'windows';
+      let icon = 'fa-brands fa-windows text-blue-400';
+      let defaultName = 'Windows PC';
+
+      if (/android/i.test(ua)) {
+        os = 'android';
+        icon = 'fa-brands fa-android text-emerald-400';
+        defaultName = 'Android Phone';
+      } else if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) {
+        os = 'ios';
+        icon = 'fa-brands fa-apple text-slate-200';
+        defaultName = /iPad/.test(ua) ? 'Apple iPad' : 'Apple iPhone';
+      } else if (/Macintosh|Mac OS X/.test(ua)) {
+        os = 'macos';
+        icon = 'fa-brands fa-apple text-slate-200';
+        defaultName = 'MacBook Pro';
+      } else if (/Linux/.test(ua)) {
+        os = 'linux';
+        icon = 'fa-brands fa-linux text-amber-400';
+        defaultName = 'Linux Workstation';
+      }
+
+      const savedName = getStoredItem('omnidrop_device_name');
+      const randomTag = Math.floor(100 + Math.random() * 900);
+      
+      STATE.myDevice = {
+        id: 'peer_' + Math.random().toString(36).substring(2, 9),
+        name: savedName || `${defaultName} ${randomTag}`,
+        os: os,
+        icon: icon
+      };
+
+      updateIdentityUI();
+    }
+
+    function updateIdentityUI() {
+      document.getElementById('nav-my-os-icon').innerHTML = `<i class="${STATE.myDevice.icon}"></i>`;
+      document.getElementById('nav-my-name').innerText = STATE.myDevice.name;
+      document.getElementById('center-os-icon').innerHTML = `<i class="${STATE.myDevice.icon}"></i>`;
+      document.getElementById('center-device-name').innerText = STATE.myDevice.name;
+    }
+
+    function showToast(message, type = 'info', icon = 'fa-info-circle') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      
+      const colors = {
+        info: 'border-brand-500/40 bg-slate-900/95 text-slate-100',
+        success: 'border-emerald-500/40 bg-slate-900/95 text-emerald-300',
+        warning: 'border-amber-500/40 bg-slate-900/95 text-amber-300',
+        error: 'border-rose-500/40 bg-slate-900/95 text-rose-300'
+      };
+
+      toast.className = `p-3.5 rounded-xl border ${colors[type] || colors.info} shadow-xl shadow-black/50 text-xs font-medium flex items-center gap-3 backdrop-blur-md pointer-events-auto transform transition-all duration-300 translate-y-2 opacity-0`;
+      toast.innerHTML = `
+        <i class="fa-solid ${icon} text-base flex-shrink-0"></i>
+        <div class="flex-1">${message}</div>
+      `;
+
+      container.appendChild(toast);
+      
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('translate-y-2', 'opacity-0');
+        setTimeout(() => toast.remove(), 350);
+      }, 3800);
+    }
+
+    function getShareableRoomUrl(code) {
+      try {
+        if (window.location.protocol.startsWith('http') && !window.location.href.startsWith('blob:')) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('room', code);
+          return url.toString();
+        }
+      } catch (e) {}
+      return `${window.location.origin}/?room=${code}`;
+    }
+
+    function initializeRoom() {
+      let room = null;
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        room = urlParams.get('room');
+      } catch (e) {}
+      
+      if (!room || room.length !== 6 || !/^\d+$/.test(room)) {
+        room = Math.floor(100000 + Math.random() * 900000).toString();
+      }
+      
+      setRoomCode(room);
+    }
+
+    function setRoomCode(code) {
+      STATE.roomCode = code;
+      document.getElementById('nav-room-code').innerText = `#${code}`;
+      document.getElementById('modal-room-code').innerText = `#${code}`;
+      document.querySelectorAll('.room-code-inline').forEach(el => el.innerText = `#${code}`);
+
+      const shareableUrl = getShareableRoomUrl(code);
+
+      try {
+        if (!window.location.href.startsWith('blob:') && window.location.protocol.startsWith('http')) {
+          window.history.replaceState({ path: shareableUrl }, '', shareableUrl);
+        }
+      } catch (err) {}
+
+      generateQRCode(shareableUrl);
+      setupBroadcastChannel();
+      setupPeerJS();
+    }
+
+    function generateQRCode(url) {
+      const qrContainer = document.getElementById('qrcode-box');
+      qrContainer.innerHTML = '';
+      try {
+        new QRCode(qrContainer, {
+          text: url,
+          width: 190,
+          height: 190,
+          colorDark: "#090d16",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } catch (err) {
+        console.error("QR Code error:", err);
+      }
+    }
+
+    function setupBroadcastChannel() {
+      if (STATE.broadcastChannel) {
+        STATE.broadcastChannel.close();
+      }
+      try {
+        STATE.broadcastChannel = new BroadcastChannel(`omnidrop_room_${STATE.roomCode}`);
+        STATE.broadcastChannel.onmessage = (event) => {
+          handleIncomingNetworkMessage(event.data);
+        };
+        announcePresence();
+      } catch (e) {
+        console.warn("BroadcastChannel unsupported, relying on WebRTC.", e);
+      }
+    }
+
+    function setupPeerJS() {
+      if (STATE.peer) {
+        STATE.peer.destroy();
+      }
+
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      const peerId = `omni_${STATE.roomCode}_${randomSuffix}`;
+      STATE.peerId = peerId;
+
+      try {
+        STATE.peer = new Peer(peerId, {
+          debug: 1,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+          }
+        });
+
+        STATE.peer.on('open', (id) => {
+          announcePresence();
+        });
+
+        STATE.peer.on('connection', (conn) => {
+          setupConnectionEvents(conn);
+        });
+
+        STATE.peer.on('error', (err) => {
+          console.warn('PeerJS connection event:', err.type);
+        });
+      } catch (e) {
+        console.warn("PeerJS initialization note:", e);
+      }
+    }
+
+    function setupConnectionEvents(conn) {
+      conn.on('open', () => {
+        STATE.connections[conn.peer] = conn;
+        conn.send({
+          type: 'handshake',
+          device: STATE.myDevice
+        });
+      });
+
+      conn.on('data', (data) => {
+        handleIncomingNetworkMessage(data, conn);
+      });
+
+      conn.on('close', () => {
+        delete STATE.connections[conn.peer];
+        removePeer(conn.peer);
+      });
+    }
+
+    function announcePresence() {
+      const msg = {
+        type: 'announce-presence',
+        room: STATE.roomCode,
+        device: STATE.myDevice,
+        senderId: STATE.peerId || STATE.myDevice.id
+      };
+
+      if (STATE.broadcastChannel) {
+        STATE.broadcastChannel.postMessage(msg);
+      }
+
+      Object.values(STATE.connections).forEach(conn => {
+        if (conn.open) {
+          conn.send(msg);
+        }
+      });
+    }
+
+    function handleIncomingNetworkMessage(msg, senderConn = null) {
+      if (!msg || !msg.type) return;
+
+      if (msg.senderId === STATE.peerId || (msg.device && msg.device.id === STATE.myDevice.id)) {
+        return;
+      }
+
+      switch (msg.type) {
+        case 'announce-presence':
+        case 'handshake':
+          registerPeer(msg.senderId, msg.device, senderConn);
+          if (msg.type === 'announce-presence') {
+            const reply = {
+              type: 'presence-reply',
+              room: STATE.roomCode,
+              device: STATE.myDevice,
+              senderId: STATE.peerId || STATE.myDevice.id
+            };
+            if (senderConn && senderConn.open) {
+              senderConn.send(reply);
+            } else if (STATE.broadcastChannel) {
+              STATE.broadcastChannel.postMessage(reply);
+            }
+          }
+          break;
+
+        case 'presence-reply':
+          registerPeer(msg.senderId, msg.device, senderConn);
+          break;
+
+        case 'peer-leaving':
+          removePeer(msg.senderId);
+          break;
+
+        case 'file-header':
+          handleFileHeader(msg);
+          break;
+
+        case 'file-chunk':
+          handleFileChunk(msg);
+          break;
+
+        case 'file-complete':
+          handleFileComplete(msg);
+          break;
+      }
+    }
+
+    function registerPeer(peerId, deviceInfo, conn = null) {
+      if (!deviceInfo) return;
+      
+      const isNew = !STATE.discoveredPeers.has(peerId);
+      STATE.discoveredPeers.set(peerId, {
+        id: peerId,
+        device: deviceInfo,
+        lastSeen: Date.now(),
+        connection: conn
+      });
+
+      if (isNew) {
+        AudioEngine.peerJoined();
+        showToast(`Connected to ${deviceInfo.name}`, 'success', 'fa-network-wired');
+      }
+
+      renderRadarPeers();
+      renderPeersList();
+      updateTargetDropdown();
+    }
+
+    function removePeer(peerId) {
+      if (STATE.discoveredPeers.has(peerId)) {
+        const peer = STATE.discoveredPeers.get(peerId);
+        showToast(`${peer.device.name} disconnected`, 'warning', 'fa-door-closed');
+        STATE.discoveredPeers.delete(peerId);
+        renderRadarPeers();
+        renderPeersList();
+        updateTargetDropdown();
+      }
+    }
+
+    function renderRadarPeers() {
+      const container = document.getElementById('radar-peers-orbit');
+      const countBadge = document.getElementById('peers-count-badge');
+      container.innerHTML = '';
+
+      const peers = Array.from(STATE.discoveredPeers.values());
+      countBadge.innerText = `${peers.length} Peer(s) Online`;
+
+      if (peers.length === 0) return;
+
+      const radius = 105;
+      const centerX = container.clientWidth / 2 || 144;
+      const centerY = container.clientHeight / 2 || 144;
+
+      peers.forEach((p, idx) => {
+        const angle = (idx * (2 * Math.PI / peers.length)) - (Math.PI / 2);
+        const x = centerX + radius * Math.cos(angle) - 24;
+        const y = centerY + radius * Math.sin(angle) - 24;
+
+        const blip = document.createElement('div');
+        blip.className = 'absolute pointer-events-auto flex flex-col items-center group cursor-pointer transition-transform hover:scale-115';
+        blip.style.left = `${x}px`;
+        blip.style.top = `${y}px`;
+        
+        blip.innerHTML = `
+          <div class="relative">
+            <div class="w-12 h-12 rounded-full bg-slate-900 border-2 border-cyan-400 flex items-center justify-center text-white text-base shadow-lg shadow-cyan-500/20 group-hover:border-brand-400">
+              <i class="${p.device.icon || 'fa-solid fa-mobile-screen'}"></i>
+            </div>
+            <span class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-slate-950 animate-ping"></span>
+            <span class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-slate-950"></span>
+          </div>
+          <span class="text-[10px] font-bold text-slate-200 mt-1 max-w-[70px] truncate bg-slate-950/80 px-1.5 py-0.5 rounded border border-slate-800">${p.device.name}</span>
+        `;
+
+        blip.onclick = () => {
+          document.getElementById('target-peer-select').value = p.id;
+          document.getElementById('file-input').click();
+          showToast(`Selected ${p.device.name}. Choose files to send!`, 'info', 'fa-hand-pointer');
+        };
+
+        container.appendChild(blip);
+      });
+    }
+
+    function renderPeersList() {
+      const container = document.getElementById('discovered-peers-list');
+      const placeholder = document.getElementById('no-peers-placeholder');
+      const peers = Array.from(STATE.discoveredPeers.values());
+
+      if (peers.length === 0) {
+        if (placeholder) placeholder.style.display = 'flex';
+        return;
+      }
+
+      if (placeholder) placeholder.style.display = 'none';
+      container.innerHTML = '';
+
+      peers.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition';
+        item.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center text-slate-200">
+              <i class="${p.device.icon}"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white">${p.device.name}</div>
+              <div class="text-[10px] text-slate-400 flex items-center gap-1.5">
+                <span class="capitalize text-cyan-400">${p.device.os}</span> • <span>Direct DataChannel</span>
+              </div>
+            </div>
+          </div>
+          <button class="send-to-btn px-2.5 py-1 rounded-lg bg-brand-600/30 hover:bg-brand-600 text-brand-300 hover:text-white border border-brand-500/40 text-xs font-semibold transition cursor-pointer flex items-center gap-1">
+            <i class="fa-solid fa-paper-plane text-[10px]"></i> Send
+          </button>
+        `;
+
+        item.querySelector('.send-to-btn').onclick = () => {
+          document.getElementById('target-peer-select').value = p.id;
+          document.getElementById('file-input').click();
+        };
+
+        container.appendChild(item);
+      });
+    }
+
+    function updateTargetDropdown() {
+      const select = document.getElementById('target-peer-select');
+      const currentVal = select.value;
+      select.innerHTML = '<option value="broadcast">📢 All Discovered Peers (Broadcast)</option>';
+
+      STATE.discoveredPeers.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.innerText = `🎯 ${p.device.name} (${p.device.os})`;
+        select.appendChild(opt);
+      });
+
+      if (select.querySelector(`option[value="${currentVal}"]`)) {
+        select.value = currentVal;
+      }
+    }
+
+    function setupFileDropEvents() {
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+
+      ['dragenter', 'dragover'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+          e.preventDefault();
+          dropZone.classList.add('border-cyan-400', 'bg-cyan-950/20');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+          e.preventDefault();
+          dropZone.classList.remove('border-cyan-400', 'bg-cyan-950/20');
+        });
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+          handleSelectedFiles(e.dataTransfer.files);
+        }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          handleSelectedFiles(e.target.files);
+        }
+      });
+
+      window.addEventListener('paste', (e) => {
+        if (e.clipboardData && e.clipboardData.files.length > 0) {
+          handleSelectedFiles(e.clipboardData.files);
+          showToast(`Pasted ${e.clipboardData.files.length} file(s) from clipboard`, 'info', 'fa-paste');
+        }
+      });
+    }
+
+    function handleSelectedFiles(filesList) {
+      const newFiles = Array.from(filesList);
+      STATE.stagedFiles = [...STATE.stagedFiles, ...newFiles];
+      renderStagedFiles();
+    }
+
+    function renderStagedFiles() {
+      const stagingArea = document.getElementById('staging-area');
+      const container = document.getElementById('staged-files-list');
+      const stagedCount = document.getElementById('staged-count');
+      const totalSizeEl = document.getElementById('staged-total-size');
+
+      if (STATE.stagedFiles.length === 0) {
+        stagingArea.classList.add('hidden');
+        return;
+      }
+
+      stagingArea.classList.remove('hidden');
+      stagedCount.innerText = STATE.stagedFiles.length;
+      
+      const totalBytes = STATE.stagedFiles.reduce((acc, f) => acc + f.size, 0);
+      totalSizeEl.innerText = formatBytes(totalBytes) + ' total';
+
+      container.innerHTML = '';
+
+      STATE.stagedFiles.forEach((file, index) => {
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs';
+        
+        let iconClass = 'fa-file text-slate-400';
+        if (file.type.startsWith('image/')) iconClass = 'fa-file-image text-emerald-400';
+        else if (file.type.startsWith('video/')) iconClass = 'fa-file-video text-rose-400';
+        else if (file.type.includes('pdf')) iconClass = 'fa-file-pdf text-red-400';
+        else if (file.type.includes('zip') || file.type.includes('archive')) iconClass = 'fa-file-zipper text-amber-400';
+
+        item.innerHTML = `
+          <div class="flex items-center gap-2 overflow-hidden">
+            <i class="fa-solid ${iconClass} text-sm flex-shrink-0"></i>
+            <div class="truncate">
+              <div class="font-medium text-slate-200 truncate">${escapeHtml(file.name)}</div>
+              <div class="text-[10px] text-slate-500 font-mono">${formatBytes(file.size)}</div>
+            </div>
+          </div>
+          <button data-idx="${index}" class="remove-staged-btn text-slate-500 hover:text-rose-400 p-1 transition cursor-pointer">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        `;
+
+        item.querySelector('.remove-staged-btn').onclick = (e) => {
+          e.stopPropagation();
+          STATE.stagedFiles.splice(index, 1);
+          renderStagedFiles();
+        };
+
+        container.appendChild(item);
+      });
+    }
+
+    async function startBatchTransmission() {
+      if (STATE.stagedFiles.length === 0) {
+        showToast('No files queued to send!', 'warning', 'fa-triangle-exclamation');
+        return;
+      }
+
+      const peersCount = STATE.discoveredPeers.size;
+      if (peersCount === 0) {
+        showToast('No peers discovered! Open this page on another device or scan QR code.', 'warning', 'fa-satellite-dish');
+        return;
+      }
+
+      const targetChoice = document.getElementById('target-peer-select').value;
+      const filesToSend = [...STATE.stagedFiles];
+
+      AudioEngine.transferStart();
+
+      for (let i = 0; i < filesToSend.length; i++) {
+        await transmitSingleFile(filesToSend[i], targetChoice);
+      }
+
+      STATE.stagedFiles = [];
+      renderStagedFiles();
+      AudioEngine.transferSuccess();
+      showToast('All files sent successfully!', 'success', 'fa-circle-check');
+    }
+
+    async function transmitSingleFile(file, targetPeerId) {
+      return new Promise((resolve) => {
+        const fileId = 'file_' + Math.random().toString(36).substring(2, 9);
+        const totalChunks = Math.ceil(file.size / STATE.chunkSize);
+        let chunkIndex = 0;
+        let bytesSent = 0;
+        const startTime = Date.now();
+
+        showTransferDashboard(file.name, file.size, 'upload');
+
+        const fileHeader = {
+          type: 'file-header',
+          fileId: fileId,
+          name: file.name,
+          size: file.size,
+          mimeType: file.type || 'application/octet-stream',
+          totalChunks: totalChunks,
+          senderName: STATE.myDevice.name,
+          senderId: STATE.peerId || STATE.myDevice.id,
+          targetPeerId: targetPeerId
+        };
+
+        dispatchDataMessage(fileHeader, targetPeerId);
+
+        function sendNextChunk() {
+          if (chunkIndex >= totalChunks) {
+            dispatchDataMessage({
+              type: 'file-complete',
+              fileId: fileId,
+              targetPeerId: targetPeerId
+            }, targetPeerId);
+
+            hideTransferDashboard();
+            resolve();
+            return;
+          }
+
+          const start = chunkIndex * STATE.chunkSize;
+          const end = Math.min(start + STATE.chunkSize, file.size);
+          const blobSlice = file.slice(start, end);
+
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const arrayBuffer = e.target.result;
+            const base64Data = arrayBufferToBase64(arrayBuffer);
+
+            const chunkPayload = {
+              type: 'file-chunk',
+              fileId: fileId,
+              chunkIndex: chunkIndex,
+              data: base64Data,
+              targetPeerId: targetPeerId
+            };
+
+            dispatchDataMessage(chunkPayload, targetPeerId);
+
+            chunkIndex++;
+            bytesSent += (end - start);
+
+            updateTransferProgress(bytesSent, file.size, startTime);
+            setTimeout(sendNextChunk, 4);
+          };
+
+          reader.readAsArrayBuffer(blobSlice);
+        }
+
+        sendNextChunk();
+      });
+    }
+
+    function dispatchDataMessage(payload, targetPeerId) {
+      if (STATE.broadcastChannel) {
+        STATE.broadcastChannel.postMessage(payload);
+      }
+
+      if (targetPeerId === 'broadcast') {
+        Object.values(STATE.connections).forEach(conn => {
+          if (conn.open) conn.send(payload);
+        });
+      } else {
+        const peer = STATE.discoveredPeers.get(targetPeerId);
+        if (peer && peer.connection && peer.connection.open) {
+          peer.connection.send(payload);
+        }
+      }
+    }
+
+    const incomingFileBuffers = new Map();
+
+    function handleFileHeader(header) {
+      if (header.targetPeerId !== 'broadcast' && header.targetPeerId !== STATE.peerId && header.targetPeerId !== STATE.myDevice.id) {
+        return;
+      }
+
+      incomingFileBuffers.set(header.fileId, {
+        header: header,
+        chunksReceived: 0,
+        chunks: new Array(header.totalChunks),
+        receivedBytes: 0,
+        startTime: Date.now()
+      });
+
+      showTransferDashboard(header.name, header.size, 'download');
+      AudioEngine.playTone(600, 'sine', 0.08, 0.06);
+    }
+
+    function handleFileChunk(chunk) {
+      if (!incomingFileBuffers.has(chunk.fileId)) return;
+      const fileBuffer = incomingFileBuffers.get(chunk.fileId);
+
+      const arrayBuffer = base64ToArrayBuffer(chunk.data);
+      fileBuffer.chunks[chunk.chunkIndex] = arrayBuffer;
+      fileBuffer.chunksReceived++;
+      fileBuffer.receivedBytes += arrayBuffer.byteLength;
+
+      updateTransferProgress(fileBuffer.receivedBytes, fileBuffer.header.size, fileBuffer.startTime);
+    }
+
+    function handleFileComplete(completeMsg) {
+      if (!incomingFileBuffers.has(completeMsg.fileId)) return;
+      const fileBuffer = incomingFileBuffers.get(completeMsg.fileId);
+      const header = fileBuffer.header;
+
+      const fileBlob = new Blob(fileBuffer.chunks, { type: header.mimeType });
+      const downloadUrl = URL.createObjectURL(fileBlob);
+
+      const receivedItem = {
+        id: header.fileId,
+        name: header.name,
+        size: header.size,
+        mimeType: header.mimeType,
+        blob: fileBlob,
+        url: downloadUrl,
+        senderName: header.senderName || 'Unknown Device',
+        timestamp: new Date()
+      };
+
+      STATE.receivedFiles.unshift(receivedItem);
+      incomingFileBuffers.delete(completeMsg.fileId);
+
+      hideTransferDashboard();
+      AudioEngine.transferSuccess();
+      renderReceivedFiles();
+
+      showToast(`Received ${header.name} from ${header.senderName}`, 'success', 'fa-download');
+
+      const autoDownload = document.getElementById('auto-download-toggle').checked;
+      if (autoDownload) {
+        triggerDownload(downloadUrl, header.name);
+      }
+    }
+
+    function showTransferDashboard(fileName, totalBytes, direction = 'upload') {
+      const card = document.getElementById('active-transfer-card');
+      const title = document.getElementById('transfer-status-title');
+      const icon = document.getElementById('transfer-direction-icon');
+      
+      card.classList.remove('hidden');
+      title.innerText = `${direction === 'upload' ? 'Sending' : 'Receiving'}: ${fileName}`;
+      icon.className = direction === 'upload' 
+        ? 'fa-solid fa-arrow-up text-cyan-400' 
+        : 'fa-solid fa-arrow-down text-emerald-400';
+    }
+
+    function updateTransferProgress(currentBytes, totalBytes, startTime) {
+      const percent = Math.min(100, Math.round((currentBytes / totalBytes) * 100));
+      const elapsedSec = Math.max(0.001, (Date.now() - startTime) / 1000);
+      const speedBps = currentBytes / elapsedSec;
+      const speedMBps = (speedBps / (1024 * 1024)).toFixed(1);
+      
+      const remainingBytes = Math.max(0, totalBytes - currentBytes);
+      const remainingSec = Math.ceil(remainingBytes / (speedBps || 1));
+
+      document.getElementById('transfer-progress-bar').style.width = `${percent}%`;
+      document.getElementById('transfer-percent-stat').innerText = `${percent}%`;
+      document.getElementById('transfer-bytes-stat').innerText = `${formatBytes(currentBytes)} / ${formatBytes(totalBytes)}`;
+      document.getElementById('transfer-speed-badge').innerText = `${speedMBps} MB/s`;
+      document.getElementById('transfer-eta').innerText = percent >= 100 ? 'Finishing...' : `ETA: ~${remainingSec}s`;
+    }
+
+    function hideTransferDashboard() {
+      setTimeout(() => {
+        document.getElementById('active-transfer-card').classList.add('hidden');
+        document.getElementById('transfer-progress-bar').style.width = '0%';
+      }, 700);
+    }
+
+    function renderReceivedFiles() {
+      const container = document.getElementById('received-files-container');
+      const emptyMsg = document.getElementById('empty-received-msg');
+      const counter = document.getElementById('received-counter');
+
+      counter.innerText = `${STATE.receivedFiles.length} item(s)`;
+
+      if (STATE.receivedFiles.length === 0) {
+        if (emptyMsg) emptyMsg.style.display = 'flex';
+        return;
+      }
+
+      if (emptyMsg) emptyMsg.style.display = 'none';
+      container.innerHTML = '';
+
+      STATE.receivedFiles.forEach(file => {
+        const card = document.createElement('div');
+        card.className = 'glass-card glass-card-hover rounded-2xl p-3.5 flex flex-col justify-between border border-slate-800 bg-slate-900/90 relative group';
+
+        const isImage = file.mimeType.startsWith('image/');
+        const timeStr = file.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        card.innerHTML = `
+          <div class="w-full h-32 rounded-xl bg-slate-950 flex items-center justify-center overflow-hidden mb-2.5 border border-slate-800 relative">
+            ${isImage 
+              ? `<img src="${file.url}" alt="${escapeHtml(file.name)}" class="w-full h-full object-cover rounded-xl transition group-hover:scale-105" />`
+              : `<div class="flex flex-col items-center text-slate-500">
+                   <i class="fa-solid fa-file-lines text-3xl mb-1 text-slate-400"></i>
+                   <span class="text-[10px] uppercase font-mono tracking-wider">${file.name.split('.').pop() || 'FILE'}</span>
+                 </div>`
+            }
+          </div>
+
+          <div class="mb-3">
+            <h4 class="text-xs font-bold text-white truncate" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</h4>
+            <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+              <span class="font-mono text-cyan-400">${formatBytes(file.size)}</span>
+              <span>${timeStr}</span>
+            </div>
+            <div class="text-[10px] text-slate-500 truncate mt-0.5">
+              From: <span class="text-slate-300">${escapeHtml(file.senderName)}</span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5 pt-2 border-t border-slate-800/80">
+            <a href="${file.url}" download="${escapeHtml(file.name)}" class="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer">
+              <i class="fa-solid fa-download"></i> Save
+            </a>
+            ${isImage ? `
+              <button class="preview-btn w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition cursor-pointer" title="Preview image in new tab">
+                <i class="fa-solid fa-eye text-xs"></i>
+              </button>
+            ` : ''}
+          </div>
+        `;
+
+        const previewBtn = card.querySelector('.preview-btn');
+        if (previewBtn) {
+          previewBtn.onclick = () => window.open(file.url, '_blank');
+        }
+
+        container.appendChild(card);
+      });
+    }
+
+    function triggerDownload(url, filename) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    function formatBytes(bytes, decimals = 1) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    }
+
+    function base64ToArrayBuffer(base64) {
+      const binary_string = window.atob(base64);
+      const len = binary_string.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, function(m) {
+        return {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#039;'
+        }[m];
+      });
+    }
+
+    function copyToClipboard(text, successMsg = 'Copied to clipboard!') {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        showToast(successMsg, 'success', 'fa-copy');
+      } catch (err) {
+        showToast('Failed to copy. Please copy manually.', 'warning', 'fa-copy');
+      }
+      document.body.removeChild(textarea);
+    }
+
+    function setupUIEventListeners() {
+      const roomModal = document.getElementById('room-modal');
+      const openModalBtn = document.getElementById('open-room-btn');
+      const showQrBannerBtn = document.getElementById('show-qr-banner-btn');
+      const closeModalBtn = document.getElementById('close-modal-btn');
+
+      const openModal = () => {
+        roomModal.classList.remove('hidden');
+        AudioEngine.radarPing();
+      };
+      const closeModal = () => roomModal.classList.add('hidden');
+
+      openModalBtn.onclick = openModal;
+      showQrBannerBtn.onclick = openModal;
+      closeModalBtn.onclick = closeModal;
+      roomModal.onclick = (e) => { if (e.target === roomModal) closeModal(); };
+
+      const handleCopyLink = () => {
+        const link = getShareableRoomUrl(STATE.roomCode);
+        copyToClipboard(link, `Room #${STATE.roomCode} link copied!`);
+      };
+
+      document.getElementById('copy-link-banner-btn').onclick = handleCopyLink;
+      document.getElementById('modal-copy-btn').onclick = handleCopyLink;
+
+      document.getElementById('join-room-btn').onclick = () => {
+        const inputVal = document.getElementById('custom-room-input').value.trim();
+        if (/^\d{6}$/.test(inputVal)) {
+          setRoomCode(inputVal);
+          closeModal();
+          showToast(`Switched to Room #${inputVal}`, 'info', 'fa-door-open');
+        } else {
+          showToast('Please enter a valid 6-digit room code!', 'warning', 'fa-triangle-exclamation');
+        }
+      };
+
+      document.getElementById('gen-new-room-btn').onclick = () => {
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+        setRoomCode(newCode);
+        showToast(`Generated new Room #${newCode}`, 'info', 'fa-arrows-rotate');
+      };
+
+      const renameModal = document.getElementById('rename-modal');
+      const renameInput = document.getElementById('rename-input');
+      document.getElementById('my-device-btn').onclick = () => {
+        renameInput.value = STATE.myDevice.name;
+        renameModal.classList.remove('hidden');
+        renameInput.focus();
+      };
+      document.getElementById('cancel-rename-btn').onclick = () => renameModal.classList.add('hidden');
+      document.getElementById('save-rename-btn').onclick = () => {
+        const val = renameInput.value.trim();
+        if (val) {
+          STATE.myDevice.name = val;
+          setStoredItem('omnidrop_device_name', val);
+          updateIdentityUI();
+          announcePresence();
+          showToast(`Renamed to ${val}`, 'success', 'fa-check');
+        }
+        renameModal.classList.add('hidden');
+      };
+
+      const audioToggle = document.getElementById('audio-toggle-btn');
+      const audioIcon = document.getElementById('audio-icon');
+      audioToggle.onclick = () => {
+        STATE.soundEnabled = !STATE.soundEnabled;
+        if (STATE.soundEnabled) {
+          audioIcon.className = 'fa-solid fa-volume-high text-xs text-cyan-400';
+          AudioEngine.playTone(660);
+          showToast('Sound effects enabled', 'info', 'fa-volume-high');
+        } else {
+          audioIcon.className = 'fa-solid fa-volume-xmark text-xs text-slate-500';
+          showToast('Sound effects muted', 'info', 'fa-volume-xmark');
+        }
+      };
+
+      document.getElementById('rescan-radar-btn').onclick = () => {
+        AudioEngine.radarPing();
+        announcePresence();
+        showToast('Pinging all nodes in room...', 'info', 'fa-satellite-dish');
+      };
+
+      document.getElementById('send-files-btn').onclick = startBatchTransmission;
+
+      document.getElementById('clear-staged-btn').onclick = () => {
+        STATE.stagedFiles = [];
+        renderStagedFiles();
+      };
+
+      document.getElementById('clear-vault-btn').onclick = () => {
+        STATE.receivedFiles.forEach(f => URL.revokeObjectURL(f.url));
+        STATE.receivedFiles = [];
+        renderReceivedFiles();
+        showToast('Received vault cleared', 'info', 'fa-trash');
+      };
+    }
+
+    setInterval(() => {
+      announcePresence();
+    }, 10000);
+
+    window.onload = function () {
+      detectDevice();
+      initializeRoom();
+      setupFileDropEvents();
+      setupUIEventListeners();
+      
+      setTimeout(() => {
+        showToast(`OmniDrop active on ${STATE.myDevice.name}`, 'info', 'fa-bolt');
+      }, 600);
+    };
+
+    window.addEventListener('beforeunload', () => {
+      if (STATE.broadcastChannel) {
+        STATE.broadcastChannel.postMessage({
+          type: 'peer-leaving',
+          senderId: STATE.peerId || STATE.myDevice.id
+        });
+      }
+    });
+  </script>
+</body>
+</html>
